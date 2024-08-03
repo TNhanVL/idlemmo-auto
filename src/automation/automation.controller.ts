@@ -14,4 +14,14 @@ export class AutomationController {
   async firstPage(): Promise<string> {
     return await this.automationService.firstPage();
   }
+
+  @Get('startAutoBattle')
+  async startAutoBattle() {
+    await this.automationService.startAutoBattle();
+  }
+
+  @Get('stopAutoBattle')
+  async stopAutoBattle() {
+    return await this.automationService.stopAutoBattle();
+  }
 }

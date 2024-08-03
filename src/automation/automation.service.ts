@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import * as playwright from 'playwright';
 import { readFileSync } from 'fs';
 import { Solver } from '@2captcha/captcha-solver';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import ms from 'ms';
 
 @Injectable()
 export class AutomationService {
@@ -11,9 +13,27 @@ export class AutomationService {
   private page: playwright.Page | undefined;
   private solver = new Solver(process.env.TWOCAPTCHA_API_KEY);
 
+  private loggedIn = false;
+  private enableAutoBattle = false;
+  private nextBattleTime = new Date();
+
   constructor(private readonly configService: ConfigService) {}
 
   private web_url = 'https://web.idle-mmo.com';
+
+  @Cron(CronExpression.EVERY_SECOND)
+  async battleCron() {
+    if (!this.enableAutoBattle || !this.loggedIn) return;
+    if (new Date().getTime() < this.nextBattleTime.getTime()) return;
+    this.nextBattleTime.setTime(new Date().getTime() + 100000000);
+    const tmpTime = this.nextBattleTime.getTime();
+    await this.nextBattle();
+    if (this.nextBattleTime.getTime() == tmpTime) {
+      this.nextBattleTime.setTime(
+        new Date().getTime() + Math.floor(Math.random() * 2000 + 1000),
+      );
+    }
+  }
 
   async login(): Promise<string> {
     this.browser = await playwright.chromium.launch({
@@ -148,6 +168,8 @@ export class AutomationService {
 
     await (await this.page.getByText('Login').all()).at(0).click();
 
+    this.loggedIn = true;
+
     return 'hmm';
   }
 
@@ -162,6 +184,71 @@ export class AutomationService {
     const content = await this.page.content();
 
     return content;
+  }
+
+  async startAutoBattle() {
+    this.enableAutoBattle = true;
+  }
+
+  async stopAutoBattle() {
+    this.enableAutoBattle = false;
+  }
+
+  async nextBattle() {
+    await this.page.goto(this.web_url + '/battle');
+
+    // Add a random delay of 1 to 5 seconds to simulate human behavior
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    const startHuntButton = await this.page.getByText('Start Hunt');
+    if (await startHuntButton.isVisible()) {
+      await startHuntButton.click();
+    }
+
+    const battleMaxHuntButton = await this.page
+      .getByText('Battle Max')
+      .locator('xpath=..');
+
+    // wait for visible
+    while (true) {
+      if (!(await battleMaxHuntButton.isVisible()))
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      else break;
+    }
+
+    // while visible
+    while (true) {
+      // check world boss
+      const worldBossLabel = await this.page
+        .getByText('World Bosses Nearby')
+        .locator('xpath=..')
+        .locator('xpath=..')
+        .locator('xpath=..')
+        .locator('xpath=../div[4]');
+
+      const nextWorldBoss = (await worldBossLabel.innerText())
+        .split(' ')
+        .map((e) => ms(e))
+        .reduce((sum, i) => sum + i, 0);
+
+      if (nextWorldBoss < ms('1m')) {
+        await worldBossLabel.locator('button').click();
+        const joinLobbyButton = await this.page.getByText('Join Lobby');
+        await joinLobbyButton.click();
+        this.nextBattleTime.setTime(new Date().getTime() + ms('3m'));
+        return;
+      }
+
+      if (await battleMaxHuntButton.isVisible()) {
+        if (Number((await battleMaxHuntButton.innerText()).split('\n')[1]) != 0)
+          await battleMaxHuntButton.click();
+
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        continue;
+      } else {
+        break;
+      }
+    }
   }
 }
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
