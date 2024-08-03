@@ -5,8 +5,13 @@ import { AutomationService } from './automation.service';
 export class AutomationController {
   constructor(private readonly automationService: AutomationService) {}
 
-  @Get()
-  getHello(): string {
-    return this.automationService.getHello();
+  @Get('login')
+  async login(): Promise<string> {
+    return await this.automationService.login();
+  }
+
+  @Get('firstPage')
+  async firstPage(): Promise<string> {
+    return await this.automationService.firstPage();
   }
 }
