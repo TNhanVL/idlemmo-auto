@@ -10,11 +10,6 @@ export class AutomationController {
     return await this.automationService.login();
   }
 
-  @Get('firstPage')
-  async firstPage(): Promise<string> {
-    return await this.automationService.firstPage();
-  }
-
   @Get('startAutoBattle')
   async startAutoBattle() {
     await this.automationService.startAutoBattle();
@@ -23,5 +18,15 @@ export class AutomationController {
   @Get('stopAutoBattle')
   async stopAutoBattle() {
     return await this.automationService.stopAutoBattle();
+  }
+
+  @Get('startAutoPet')
+  async startAutoPet() {
+    await this.automationService.startAutoPet();
+  }
+
+  @Get('stopAutoPet')
+  async stopAutoPet() {
+    return await this.automationService.stopAutoPet();
   }
 }

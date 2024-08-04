@@ -11,11 +11,15 @@ export class AutomationService {
   private browser: playwright.Browser | undefined;
   private context: playwright.BrowserContext | undefined;
   private page: playwright.Page | undefined;
+  private petPage: playwright.Page | undefined;
   private solver = new Solver(process.env.TWOCAPTCHA_API_KEY);
 
   private loggedIn = false;
   private enableAutoBattle = false;
   private nextBattleTime = new Date();
+
+  private enableAutoPet = false;
+  private nextPetTime = new Date();
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -27,12 +31,38 @@ export class AutomationService {
     if (new Date().getTime() < this.nextBattleTime.getTime()) return;
     this.nextBattleTime.setTime(new Date().getTime() + 100000000);
     const tmpTime = this.nextBattleTime.getTime();
-    await this.nextBattle();
+
+    console.log('startAutoBattle');
+    await this.nextBattle(this.page);
+    console.log('endAutoBattle');
+
     if (this.nextBattleTime.getTime() == tmpTime) {
       this.nextBattleTime.setTime(
         new Date().getTime() + Math.floor(Math.random() * 2000 + 1000),
       );
     }
+  }
+
+  @Cron(CronExpression.EVERY_SECOND)
+  async petCron() {
+    if (!this.enableAutoPet || !this.loggedIn) return;
+    if (new Date().getTime() < this.nextPetTime.getTime()) return;
+
+    if (!this.petPage) {
+      this.petPage = await this.context.newPage();
+    }
+
+    this.nextPetTime.setTime(new Date().getTime() + 100000000);
+
+    console.log('startAutoPet');
+    await this.nextPet(this.petPage);
+    console.log('endAutoPet');
+
+    this.nextPetTime.setTime(
+      new Date().getTime() + Math.floor(Math.random() * ms('10s')) + ms('1m'),
+    );
+
+    console.log(this.nextPetTime);
   }
 
   async login(): Promise<string> {
@@ -173,19 +203,6 @@ export class AutomationService {
     return 'hmm';
   }
 
-  async firstPage(): Promise<string> {
-    await this.page.goto(this.web_url);
-
-    // Add a random delay of 1 to 5 seconds to simulate human behavior
-    await new Promise((resolve) =>
-      setTimeout(resolve, Math.floor(Math.random() * 1000)),
-    );
-
-    const content = await this.page.content();
-
-    return content;
-  }
-
   async startAutoBattle() {
     this.enableAutoBattle = true;
   }
@@ -194,24 +211,35 @@ export class AutomationService {
     this.enableAutoBattle = false;
   }
 
-  async nextBattle() {
-    await this.page.goto(this.web_url + '/battle');
+  async startAutoPet() {
+    this.enableAutoPet = true;
+  }
+
+  async stopAutoPet() {
+    this.enableAutoPet = false;
+  }
+
+  async nextBattle(page: playwright.Page) {
+    await page.goto(this.web_url + '/battle');
 
     // Add a random delay of 1 to 5 seconds to simulate human behavior
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    const startHuntButton = await this.page.getByText('Start Hunt');
+    const startHuntButton = await page.getByText('Start Hunt');
     if (await startHuntButton.isVisible()) {
       await startHuntButton.click();
+      console.log('click start hunt');
     }
 
-    const battleMaxHuntButton = await this.page
+    const battleMaxButton = await page
       .getByText('Battle Max')
       .locator('xpath=..');
 
     // wait for visible
     while (true) {
-      if (!(await battleMaxHuntButton.isVisible()))
+      if (await startHuntButton.isVisible()) return;
+
+      if (!(await battleMaxButton.isVisible()))
         await new Promise((resolve) => setTimeout(resolve, 1000));
       else break;
     }
@@ -219,7 +247,7 @@ export class AutomationService {
     // while visible
     while (true) {
       // check world boss
-      const worldBossLabel = await this.page
+      const worldBossLabel = await page
         .getByText('World Bosses Nearby')
         .locator('xpath=..')
         .locator('xpath=..')
@@ -231,27 +259,124 @@ export class AutomationService {
         .map((e) => ms(e))
         .reduce((sum, i) => sum + i, 0);
 
-      if (nextWorldBoss < ms('1m')) {
+      if (nextWorldBoss < ms('3m')) {
         await worldBossLabel.locator('button').click();
-        const joinLobbyButton = await this.page.getByText('Join Lobby');
+        const joinLobbyButton = await page.getByText('Join Lobby');
         await joinLobbyButton.click();
-        this.nextBattleTime.setTime(new Date().getTime() + ms('3m'));
+        console.log('click join lobby');
+        this.nextBattleTime.setTime(new Date().getTime() + ms('5m'));
         return;
       }
 
-      if (await battleMaxHuntButton.isVisible()) {
-        if (Number((await battleMaxHuntButton.innerText()).split('\n')[1]) != 0)
-          await battleMaxHuntButton.click();
+      if (await battleMaxButton.isVisible()) {
+        if (Number((await battleMaxButton.innerText()).split('\n')[1]) != 0) {
+          await battleMaxButton.click();
+          console.log('click battle max');
 
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+          const allQueued = await page
+            .getByText('All eligible enemies have been queued.')
+            .first();
+
+          await sleep(2000);
+          if (await allQueued.isVisible()) {
+            await page.getByText('Hunt Again').first().click();
+            console.log('click hunt again');
+          }
+        }
+
+        await sleep(3000);
         continue;
       } else {
         break;
       }
     }
   }
+
+  async nextPet(page: playwright.Page) {
+    await page.goto(this.web_url + '/pets');
+
+    await sleep(2000);
+
+    const pets = await page
+      .locator('xpath=//*[@id="game-container"]/div/div/div[1]/div/div[2]')
+      .getByRole('button')
+      .all();
+
+    for (const pet of pets) {
+      await pet.click();
+
+      await sleep(1000);
+
+      const anotherPlaceLabel = page.getByText(
+        'You must travel there to interact with it',
+      );
+
+      if (await anotherPlaceLabel.isVisible()) {
+        continue;
+      }
+
+      const battlingLabel = page.getByText('Battling...');
+
+      if (await battlingLabel.isVisible()) {
+        continue;
+      }
+
+      const feedButton = page.getByText('Feed').first();
+      if (!(await feedButton.isVisible())) {
+        continue;
+      }
+      await feedButton.click();
+
+      await sleep(2000);
+
+      const foodLabels = await page
+        .getByText('Food')
+        .locator('xpath=..')
+        .locator('xpath=../ul')
+        .getByRole('listitem');
+
+      const numberOfFood = await foodLabels.count();
+
+      if (!numberOfFood) return;
+
+      const food = (await foodLabels.all()).at(numberOfFood - 1);
+      await food.click();
+      await page.getByText('Max Health').first().click();
+
+      const minusButton = await page
+        .getByText('Max Health')
+        .first()
+        .locator('xpath=..')
+        .locator('xpath=../div[1]/button[1]');
+      await minusButton.click();
+
+      const useButton = await page
+        .getByText('Use')
+        .and(page.getByRole('button'))
+        .first();
+      await useButton.click();
+
+      while (await useButton.isVisible()) {
+        sleep(1000);
+      }
+
+      const closeButton = await page
+        .getByText('Food')
+        .locator('xpath=..')
+        .locator('xpath=..')
+        .locator('xpath=../button[1]');
+      await closeButton.click();
+
+      await page.getByText('Battle').last().click();
+      sleep(1000);
+    }
+  }
 }
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function cfCallback(token: string) {
   throw new Error('Function not implemented.');
+}
+
+async function sleep(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
