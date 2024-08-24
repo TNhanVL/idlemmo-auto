@@ -33,7 +33,11 @@ export class AutomationService {
     const tmpTime = this.nextBattleTime.getTime();
 
     console.log('startAutoBattle');
-    await this.nextBattle(this.page);
+    try {
+      await this.nextBattle(this.page);
+    } catch (error) {
+      console.log(error);
+    }
     console.log('endAutoBattle');
 
     if (this.nextBattleTime.getTime() == tmpTime) {
@@ -278,9 +282,11 @@ export class AutomationService {
             .first();
 
           await sleep(2000);
-          if (await allQueued.isVisible()) {
-            await page.getByText('Hunt Again').first().click();
-            console.log('click hunt again');
+          if (Number((await battleMaxButton.innerText()).split('\n')[1]) != 0) {
+            if (await allQueued.isVisible()) {
+              await page.getByText('Hunt Again').first().click();
+              console.log('click hunt again');
+            }
           }
         }
 
@@ -320,6 +326,13 @@ export class AutomationService {
       if (await battlingLabel.isVisible()) {
         continue;
       }
+
+      const petImage = await page
+        .getByText('Battle')
+        .locator('xpath=../../../../../div[1]/div[1]/img');
+      await petImage.click();
+
+      await sleep(1000);
 
       const feedButton = page.getByText('Feed').first();
       if (!(await feedButton.isVisible())) {
